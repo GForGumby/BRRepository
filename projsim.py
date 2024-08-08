@@ -1,7 +1,3 @@
-import pandas as pd
-import numpy as np
-from numba import jit
-from scipy.linalg import cholesky
 # Define player projections and standard deviations
 projections = {
     "Christian McCaffrey": {'proj': 30, 'projsd': 9},
@@ -275,7 +271,7 @@ def run_parallel_simulations(num_simulations, draft_results_df, projection_looku
 
 if __name__ == '__main__':
     # Load the draft results
-    draft_results_df = pd.read_csv('C:/Users/12013/Desktop/draft_results_with_team_stacking_and_positions.csv')
+    draft_results_df = pd.read_csv('draft_results_with_team_stacking_and_positions (3)')
 
     # Create a projection lookup dictionary for quick access
     projection_lookup = {
