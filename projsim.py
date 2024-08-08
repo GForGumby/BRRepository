@@ -284,7 +284,7 @@ if __name__ == '__main__':
     final_results = run_parallel_simulations(num_simulations, draft_results_df, projection_lookup)
 
     # Save the simulation results to a CSV file
-    final_results.to_csv('C:/Users/12013/Desktop/brresults.csv', index=False)
+    final_results.to_csv('brresults', index=False)
 
     # Display the first few rows of the reshaped results
     print(final_results.head())
