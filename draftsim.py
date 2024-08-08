@@ -82,7 +82,7 @@ st.title('Fantasy Football Draft Simulator')
 # Download link for sample CSV
 sample_csv_path = 'adp sheet test'
 with open(sample_csv_path, 'rb') as file:
-    sample_csv = file.read()
+    sample_csv = file.read('adp sheet test')
 
 st.download_button(
     label="Download sample CSV",
