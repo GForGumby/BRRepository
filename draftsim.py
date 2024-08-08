@@ -80,9 +80,9 @@ def run_simulations(df, num_simulations=10, num_teams=6, num_rounds=6, team_bonu
 st.title('Fantasy Football Draft Simulator')
 
 # Download link for sample CSV
-sample_csv_path = 
+sample_csv_path = 'adp sheet test.csv'
 with open(sample_csv_path, 'rb') as file:
-    sample_csv = file.read('adp sheet test.csv')
+    sample_csv = file.read()
 
 st.download_button(
     label="Download sample CSV",
