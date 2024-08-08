@@ -1,274 +1,17 @@
 import pandas as pd
 import numpy as np
 import streamlit as st
-
-# Function to simulate a single draft
-def simulate_draft(df, starting_team_num, num_teams=6, num_rounds=6, team_bonus=.95):
-    df_copy = df.copy()
-    df_copy['Simulated ADP'] = np.random.normal(df_copy['adp'], df_copy['adpsd'])
-    df_copy.sort_values('Simulated ADP', inplace=True)
-    
-    # Initialize the teams
-    teams = {f'Team {i + starting_team_num}': [] for i in range(num_teams)}
-    team_positions = {f'Team {i + starting_team_num}': {"QB": 0, "RB": 0, "WR": 0, "TE": 0, "FLEX": 0} for i in range(num_teams)}
-    teams_stack = {f'Team {i + starting_team_num}': [] for i in range(num_teams)}
-    
-    # Snake draft order
-    for round_num in range(num_rounds):
-        draft_order = list(range(num_teams)) if round_num % 2 == 0 else list(range(num_teams))[::-1]
-        for pick_num in draft_order:
-            if not df_copy.empty:
-                team_name = f'Team {pick_num + starting_team_num}'
-                
-                # Filter players based on positional requirements
-                draftable_positions = []
-                if team_positions[team_name]["QB"] < 1:
-                    draftable_positions.append("QB")
-                if team_positions[team_name]["RB"] < 1:
-                    draftable_positions.append("RB")
-                if team_positions[team_name]["WR"] < 2:
-                    draftable_positions.append("WR")
-                if team_positions[team_name]["TE"] < 1:
-                    draftable_positions.append("TE")
-                if team_positions[team_name]["FLEX"] < 1 and (team_positions[team_name]["RB"] + team_positions[team_name]["WR"] < 5):
-                    draftable_positions.append("FLEX")
-                
-                df_filtered = df_copy.loc[
-                    df_copy['position'].isin(draftable_positions) | 
-                    ((df_copy['position'].isin(['RB', 'WR'])) & ('FLEX' in draftable_positions))
-                ].copy()
-                
-                if df_filtered.empty:
-                    continue
-                
-                # Adjust Simulated ADP based on team stacking
-                df_filtered['Adjusted ADP'] = df_filtered.apply(
-                    lambda x: x['Simulated ADP'] * team_bonus 
-                    if x['team'] in teams_stack[team_name] else x['Simulated ADP'],
-                    axis=1
-                )
-                
-                df_filtered.sort_values('Adjusted ADP', inplace=True)
-                
-                selected_player = df_filtered.iloc[0]
-                teams[team_name].append(selected_player)
-                teams_stack[team_name].append(selected_player['team'])
-                position = selected_player['position']
-                if position in ["RB", "WR"]:
-                    if team_positions[team_name][position] < {"RB": 1, "WR": 2}[position]:
-                        team_positions[team_name][position] += 1
-                    else:
-                        team_positions[team_name]["FLEX"] += 1
-                else:
-                    team_positions[team_name][position] += 1
-                df_copy = df_copy.loc[df_copy['player_id'] != selected_player['player_id']]
-    
-    return teams
-
-# Function to run multiple simulations
-def run_simulations(df, num_simulations=10, num_teams=6, num_rounds=6, team_bonus=.95):
-    all_drafts = []
-
-    for sim_num in range(num_simulations):
-        starting_team_num = sim_num * num_teams + 1
-        draft_result = simulate_draft(df, starting_team_num, num_teams, num_rounds, team_bonus)
-        all_drafts.append(draft_result)
-    
-    return all_drafts
-
-# Streamlit app
-st.title('Fantasy Football Draft Simulator')
-
-# Download link for sample CSV
-sample_csv_path = 'adp sheet test.csv'
-with open(sample_csv_path, 'rb') as file:
-    sample_csv = file.read()
-
-st.download_button(
-    label="Download sample CSV",
-    data=sample_csv,
-    file_name='adp_sheet_test.csv',
-    mime='text/csv',
-)
-
-# File upload
-uploaded_file = st.file_uploader("Upload your ADP CSV file", type=["csv"])
-
-if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file)
-
-    # Check if player_id exists, if not, create it
-    if 'player_id' not in df.columns:
-        df['player_id'] = df.index
-    
-    st.write("Data Preview:")
-    st.dataframe(df.head())
-    
-    # Parameters for the simulation
-    num_simulations = st.number_input("Number of simulations", min_value=1, value=10)
-    num_teams = st.number_input("Number of teams", min_value=2, value=6)
-    num_rounds = st.number_input("Number of rounds", min_value=1, value=6)
-    team_bonus = st.number_input("Team stacking bonus", min_value=0.0, value=0.95)
-    
-    if st.button("Run Simulation"):
-        all_drafts = run_simulations(df, num_simulations, num_teams, num_rounds, team_bonus)
-
-         # Save the draft results to a DataFrame
-        draft_results = []
-        for sim_num, draft in enumerate(all_drafts):
-            for team, players in draft.items():
-                result_entry = {
-                    'Simulation': sim_num + 1,
-                    'Team': team,
-                }
-                for i, player in enumerate(players):
-                    result_entry.update({
-                        f'Player_{i+1}_Name': player['name'],
-                        f'Player_{i+1}_Position': player['position'],
-                        f'Player_{i+1}_Team': player['team']
-                    })
-                draft_results.append(result_entry)
-        
-        draft_results_df = pd.DataFrame(draft_results)
-        
-        # Display the results
-        st.dataframe(draft_results_df)
-        
-        # Download link for the results
-        csv = draft_results_df.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="Download Draft Results",
-            data=csv,
-            file_name='draft_results_with_team_stacking_and_positions.csv',
-            mime='text/csv',
-        )
-import pandas as pd
-import numpy as np
 from numba import jit
 from scipy.linalg import cholesky
+
 # Define player projections and standard deviations
 projections = {
     "Christian McCaffrey": {'proj': 30, 'projsd': 9},
     "CeeDee Lamb": {'proj': 29, 'projsd': 9},
     "Tyreek Hill": {'proj': 28, 'projsd': 9},
-    "Ja'Marr Chase": {'proj': 27, 'projsd': 9},
-    "Justin Jefferson": {'proj': 26, 'projsd': 9},
-    "Amon-Ra St. Brown": {'proj': 25, 'projsd': 8},
-    "Bijan Robinson": {'proj': 24, 'projsd': 8},
-    "Breece Hall": {'proj': 23, 'projsd': 8},
-    "A.J. Brown": {'proj': 22, 'projsd': 8},
-    "Puka Nacua": {'proj': 21, 'projsd': 8},
-    "Garrett Wilson": {'proj': 20, 'projsd': 7},
-    "Jahmyr Gibbs": {'proj': 19, 'projsd': 7},
-    "Marvin Harrison": {'proj': 18, 'projsd': 7},
-    "Drake London": {'proj': 17, 'projsd': 7},
-    "Jonathan Taylor": {'proj': 16, 'projsd': 7},
-    "Nico Collins": {'proj': 15, 'projsd': 7},
-    "Chris Olave": {'proj': 14, 'projsd': 6},
-    "Deebo Samuel": {'proj': 13, 'projsd': 6},
-    "Saquon Barkley": {'proj': 12, 'projsd': 6},
-    "Jaylen Waddle": {'proj': 11, 'projsd': 6},
-    "Davante Adams": {'proj': 10, 'projsd': 6},
-    "Brandon Aiyuk": {'proj': 9, 'projsd': 6},
-    "De'Von Achane": {'proj': 8, 'projsd': 5},
-    "Mike Evans": {'proj': 7, 'projsd': 5},
-    "DeVonta Smith": {'proj': 6, 'projsd': 5},
-    "DK Metcalf": {'proj': 6, 'projsd': 5},
-    "Malik Nabers": {'proj': 6, 'projsd': 4},
-    "Cooper Kupp": {'proj': 6, 'projsd': 4},
-    "Kyren Williams": {'proj': 6, 'projsd': 4},
-    "Derrick Henry": {'proj': 6, 'projsd': 4},
-    "DJ Moore": {'proj': 6, 'projsd': 3},
-    "Stefon Diggs": {'proj': 6, 'projsd': 3},
-    "Michael Pittman Jr.": {'proj': 6, 'projsd': 3},
-    "Tank Dell": {'proj': 6, 'projsd': 3},
-    "Sam LaPorta": {'proj': 6, 'projsd': 3},
-    "Zay Flowers": {'proj': 6, 'projsd': 3},
-    "Josh Allen": {'proj': 6, 'projsd': 3},
-    "Travis Kelce": {'proj': 6, 'projsd': 3},
-    "George Pickens": {'proj': 6, 'projsd': 3},
-    "Isiah Pacheco": {'proj': 6, 'projsd': 3},
-    "Amari Cooper": {'proj': 6, 'projsd': 3},
-    "Jalen Hurts": {'proj': 6, 'projsd': 3},
-    "Tee Higgins": {'proj': 6, 'projsd': 3},
-    "Travis Etienne Jr.": {'proj': 6, 'projsd': 3},
-    "Patrick Mahomes": {'proj': 6, 'projsd': 3},
-    "Christian Kirk": {'proj': 6, 'projsd': 3},
-    "Trey McBride": {'proj': 6, 'projsd': 3},
-    "Lamar Jackson": {'proj': 6, 'projsd': 3},
-    "Mark Andrews": {'proj': 6, 'projsd': 3},
-    "Terry McLaurin": {'proj': 6, 'projsd': 3},
-    "Dalton Kincaid": {'proj': 6, 'projsd': 3},
-    "Josh Jacobs": {'proj': 6, 'projsd': 3},
-    "Hollywood Brown": {'proj': 6, 'projsd': 3},
-    "Keenan Allen": {'proj': 6, 'projsd': 3},
-    "James Cook": {'proj': 6, 'projsd': 3},
-    "Anthony Richardson": {'proj': 6, 'projsd': 3},
-    "Jayden Reed": {'proj': 6, 'projsd': 3},
-    "Calvin Ridley": {'proj': 6, 'projsd': 3},
-    "Chris Godwin": {'proj': 6, 'projsd': 3},
-    "Rashee Rice": {'proj': 6, 'projsd': 3},
-    "Keon Coleman": {'proj': 6, 'projsd': 3},
-    "Kyler Murray": {'proj': 6, 'projsd': 3},
-    "Aaron Jones": {'proj': 6, 'projsd': 3},
-    "DeAndre Hopkins": {'proj': 6, 'projsd': 3},
-    "Rhamondre Stevenson": {'proj': 6, 'projsd': 3},
-    "James Conner": {'proj': 6, 'projsd': 3},
-    "Najee Harris": {'proj': 6, 'projsd': 3},
-    "Jameson Williams": {'proj': 6, 'projsd': 3},
-    "Jake Ferguson": {'proj': 6, 'projsd': 3},
-    "Jordan Addison": {'proj': 6, 'projsd': 3},
-    "Curtis Samuel": {'proj': 6, 'projsd': 3},
-    "Jaylen Warren": {'proj': 6, 'projsd': 3},
-    "Zamir White": {'proj': 6, 'projsd': 3},
-    "Joe Burrow": {'proj': 6, 'projsd': 3},
-    "Jonathon Brooks": {'proj': 6, 'projsd': 3},
-    "D'Andre Swift": {'proj': 6, 'projsd': 3},
-    "Raheem Mostert": {'proj': 6, 'projsd': 3},
-    "Dak Prescott": {'proj': 6, 'projsd': 3},
-    "Courtland Sutton": {'proj': 6, 'projsd': 3},
-    "Brock Bowers": {'proj': 6, 'projsd': 3},
-    "Jordan Love": {'proj': 6, 'projsd': 3},
-    "Zack Moss": {'proj': 6, 'projsd': 3},
-    "Joshua Palmer": {'proj': 6, 'projsd': 3},
-    "David Njoku": {'proj': 6, 'projsd': 3},
-    "Tony Pollard": {'proj': 6, 'projsd': 3},
-    "Jayden Daniels": {'proj': 6, 'projsd': 3},
-    "Brian Robinson Jr.": {'proj': 6, 'projsd': 3},
-    "Romeo Doubs": {'proj': 6, 'projsd': 3},
-    "Rashid Shaheed": {'proj': 6, 'projsd': 3},
-    "Tyler Lockett": {'proj': 6, 'projsd': 3},
-    "Tyjae Spears": {'proj': 6, 'projsd': 3},
-    "Chase Brown": {'proj': 6, 'projsd': 3},
-    "Devin Singletary": {'proj': 6, 'projsd': 3},
-    "Khalil Shakir": {'proj': 6, 'projsd': 3},
-    "Brock Purdy": {'proj': 6, 'projsd': 3},
-    "Javonte Williams": {'proj': 6, 'projsd': 3},
-    "Caleb Williams": {'proj': 6, 'projsd': 3},
-    "Dontayvion Wicks": {'proj': 6, 'projsd': 3},
-    "Brandin Cooks": {'proj': 6, 'projsd': 3},
-    "Dallas Goedert": {'proj': 6, 'projsd': 3},
-    "Trey Benson": {'proj': 6, 'projsd': 3},
-    "Trevor Lawrence": {'proj': 6, 'projsd': 3},
-    "Gus Edwards": {'proj': 6, 'projsd': 3},
-    "Jakobi Meyers": {'proj': 6, 'projsd': 3},
-    "Blake Corum": {'proj': 6, 'projsd': 3},
-    "Ezekiel Elliott": {'proj': 6, 'projsd': 3},
-    "Jerry Jeudy": {'proj': 6, 'projsd': 3},
-    "Tua Tagovailoa": {'proj': 6, 'projsd': 3},
-    "Jared Goff": {'proj': 6, 'projsd': 3},
-    "Adonai Mitchell": {'proj': 6, 'projsd': 3},
-    "Jerome Ford": {'proj': 6, 'projsd': 3},
-    "Nick Chubb": {'proj': 6, 'projsd': 3},
-    "Ja'Lynn Polk": {'proj': 6, 'projsd': 3},
-    "Pat Freiermuth": {'proj': 6, 'projsd': 3},
-    "Austin Ekeler": {'proj': 6, 'projsd': 3},
+    # ... (continue with your full projections list)
     "Dalton Schultz": {'proj': 6, 'projsd': 3}
 }
-
-# Convert projections dictionary to a NumPy structured array
-proj_dtype = np.dtype([('player_name', 'U50'), ('proj', 'f4'), ('projsd', 'f4')])
-projections_array = np.array([(name, projections[name]['proj'], projections[name]['projsd']) for name in projections], dtype=proj_dtype)
 
 # JIT compiled function to generate projection
 @jit(nopython=True)
@@ -417,22 +160,93 @@ def run_parallel_simulations(num_simulations, draft_results_df, projection_looku
     
     return final_results
 
-if __name__ == '__main__':
-    # Load the draft results
-    draft_results_df = pd.read_csv('C:/Users/12013/Desktop/draft_results_with_team_stacking_and_positions.csv')
+# Streamlit app
+st.title('Fantasy Football Draft Simulator')
 
-    # Create a projection lookup dictionary for quick access
-    projection_lookup = {
-        name: (projections[name]['proj'], projections[name]['projsd'])
-        for name in projections
-    }
+# Download link for sample CSV
+sample_csv_path = 'adp sheet test.csv'
+with open(sample_csv_path, 'rb') as file:
+    sample_csv = file.read()
 
-    # Run simulations
-    num_simulations = 3  # Adjust the number of simulations as needed
-    final_results = run_parallel_simulations(num_simulations, draft_results_df, projection_lookup)
+st.download_button(
+    label="Download sample CSV",
+    data=sample_csv,
+    file_name='adp_sheet_test.csv',
+    mime='text/csv',
+)
 
-    # Save the simulation results to a CSV file
-    final_results.to_csv('C:/Users/12013/Desktop/brresults.csv', index=False)
+# File upload
+uploaded_file = st.file_uploader("Upload your ADP CSV file", type=["csv"])
 
-    # Display the first few rows of the reshaped results
-    print(final_results.head())
+if uploaded_file is not None:
+    df = pd.read_csv(uploaded_file)
+
+       # Check if player_id exists, if not, create it
+    if 'player_id' not in df.columns:
+        df['player_id'] = df.index
+    
+    st.write("Data Preview:")
+    st.dataframe(df.head())
+    
+    # Parameters for the simulation
+    num_simulations = st.number_input("Number of simulations", min_value=1, value=10)
+    num_teams = st.number_input("Number of teams", min_value=2, value=6)
+    num_rounds = st.number_input("Number of rounds", min_value=1, value=6)
+    team_bonus = st.number_input("Team stacking bonus", min_value=0.0, value=0.95)
+    
+    if st.button("Run Simulation"):
+        all_drafts = run_simulations(df, num_simulations, num_teams, num_rounds, team_bonus)
+
+        # Save the draft results to a DataFrame
+        draft_results = []
+        for sim_num, draft in enumerate(all_drafts):
+            for team, players in draft.items():
+                result_entry = {
+                    'Simulation': sim_num + 1,
+                    'Team': team,
+                }
+                for i, player in enumerate(players):
+                    result_entry.update({
+                        f'Player_{i+1}_Name': player['name'],
+                        f'Player_{i+1}_Position': player['position'],
+                        f'Player_{i+1}_Team': player['team']
+                    })
+                draft_results.append(result_entry)
+        
+        draft_results_df = pd.DataFrame(draft_results)
+        
+        # Display the results
+        st.dataframe(draft_results_df)
+        
+        # Download link for the results
+        csv = draft_results_df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="Download Draft Results",
+            data=csv,
+            file_name='draft_results_with_team_stacking_and_positions.csv',
+            mime='text/csv',
+        )
+
+    # Additional code for projections and simulations if needed
+    if st.button("Run Projections Simulation"):
+        # Create a projection lookup dictionary for quick access
+        projection_lookup = {
+            name: (projections[name]['proj'], projections[name]['projsd'])
+            for name in projections
+        }
+
+        # Run simulations
+        final_results = run_parallel_simulations(num_simulations, draft_results_df, projection_lookup)
+
+        # Display the simulation results
+        st.dataframe(final_results)
+
+        # Download link for the simulation results
+        csv_simulation = final_results.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="Download Simulation Results",
+            data=csv_simulation,
+            file_name='simulation_results.csv',
+            mime='text/csv',
+        )
+
